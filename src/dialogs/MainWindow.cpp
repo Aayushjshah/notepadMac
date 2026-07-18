@@ -30,6 +30,7 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QStringList>
+#include <QRegularExpression>
 #include <QClipboard>
 #include <QStandardPaths>
 #include <QWindow>
@@ -599,7 +600,10 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
 
     // The action needs added to the window so it can be triggered via the keyboard
     addAction(ui->actionNextTab);
-    ui->actionNextTab->setShortcuts(ui->actionNextTab->shortcuts() << QKeySequence(Qt::CTRL | Qt::Key_PageDown));
+    ui->actionNextTab->setShortcuts(ui->actionNextTab->shortcuts()
+                                    << QKeySequence(Qt::CTRL | Qt::Key_PageDown)
+                                    << QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_BracketRight)
+                                    << QKeySequence(Qt::META | Qt::SHIFT | Qt::Key_BracketRight));
     connect(ui->actionNextTab, &QAction::triggered, this, [this]() {
         int index = dockedEditor->currentDockArea()->currentIndex();
         int total = dockedEditor->currentDockArea()->dockWidgetsCount();
@@ -610,7 +614,10 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
 
     // The action needs added to the window so it can be triggered via the keyboard
     addAction(ui->actionPreviousTab);
-    ui->actionPreviousTab->setShortcuts(ui->actionPreviousTab->shortcuts() << QKeySequence(Qt::CTRL | Qt::Key_PageUp));
+    ui->actionPreviousTab->setShortcuts(ui->actionPreviousTab->shortcuts()
+                                        << QKeySequence(Qt::CTRL | Qt::Key_PageUp)
+                                        << QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_BracketLeft)
+                                        << QKeySequence(Qt::META | Qt::SHIFT | Qt::Key_BracketLeft));
     connect(ui->actionPreviousTab, &QAction::triggered, this, [this]() {
         int index = dockedEditor->currentDockArea()->currentIndex();
         int total = dockedEditor->currentDockArea()->dockWidgetsCount();
@@ -618,6 +625,24 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
         index--;
         dockedEditor->currentDockArea()->setCurrentIndex(index >= 0 ? index : total - 1);
     });
+
+    for (int i = 0; i < 9; i++) {
+        QAction *selectTabAction = new QAction(this);
+        selectTabAction->setShortcut(QKeySequence(Qt::CTRL | (Qt::Key_1 + i)));
+        addAction(selectTabAction);
+
+        connect(selectTabAction, &QAction::triggered, this, [this, i]() {
+            const int total = dockedEditor->currentDockArea()->dockWidgetsCount();
+            if (total == 0) {
+                return;
+            }
+
+            const int index = (i == 8) ? total - 1 : i;
+            if (index < total) {
+                dockedEditor->currentDockArea()->setCurrentIndex(index);
+            }
+        });
+    }
 
     ui->pushExitFullScreen->setParent(this); // This is important
     ui->pushExitFullScreen->setVisible(false);
@@ -894,6 +919,8 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
 
     tabsQuickActionsBar = new TabsQuickActionsBar(ui->menuBar);
     ui->menuBar->setCornerWidget(tabsQuickActionsBar, Qt::TopRightCorner);
+    tabsQuickActionsBar->setVisibileButtons(TabsQuickActionsBar::All);
+    tabsQuickActionsBar->setVisible(true);
     connect(tabsQuickActionsBar, &TabsQuickActionsBar::createNewTabClicked, this, &MainWindow::newFile);
     connect(tabsQuickActionsBar, &TabsQuickActionsBar::closeCurrentTabClicked, this, &MainWindow::closeCurrentFile);
     connect(tabsQuickActionsBar, &TabsQuickActionsBar::tabsMenuAboutToShow, this, [this](QMenu *editorsMenu) {
@@ -1218,7 +1245,7 @@ bool MainWindow::checkEditorsBeforeClose(const QVector<ScintillaNext *> &editors
         case UserSaveAction::DiscardAll:
             return true;
         case UserSaveAction::SaveAll:
-            return saveAllEditors(unsaved);
+            return saveAllEditorsForClose(unsaved);
         case UserSaveAction::Cancel:
         default:
             return false;
@@ -1479,6 +1506,51 @@ bool MainWindow::saveAllEditors(const QVector<ScintillaNext *> &editors)
     }
 
     return true;
+}
+
+bool MainWindow::saveAllEditorsForClose(const QVector<ScintillaNext *> &editors)
+{
+    QSet<QString> reservedNames;
+    const QString defaultDirectory = defaultDirectoryManager->getDefaultDirectory();
+    const QDir directory(defaultDirectory.isEmpty() ? QDir::homePath() : defaultDirectory);
+
+    for (ScintillaNext *editor : editors) {
+        if (editor->isFile() && !saveFile(editor)) {
+            return false;
+        }
+
+        if (!editor->isFile()) {
+            const QString fileName = fileNameForUnnamedEditor(editor, reservedNames);
+            reservedNames.insert(fileName);
+
+            if (!saveFileAs(editor, directory.filePath(fileName))) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+QString MainWindow::fileNameForUnnamedEditor(ScintillaNext *editor, const QSet<QString> &reservedNames) const
+{
+    static const QRegularExpression trailingNumber(QStringLiteral("(\\d+)$"));
+
+    int number = 1;
+    const QRegularExpressionMatch match = trailingNumber.match(editor->getName());
+    if (match.hasMatch()) {
+        number = match.captured(1).toInt();
+    }
+
+    const QString defaultDirectory = defaultDirectoryManager->getDefaultDirectory();
+    QDir directory(defaultDirectory.isEmpty() ? QDir::homePath() : defaultDirectory);
+
+    QString fileName;
+    do {
+        fileName = QStringLiteral("%1.txt").arg(number++);
+    } while (reservedNames.contains(fileName) || directory.exists(fileName));
+
+    return fileName;
 }
 
 void MainWindow::exportAsFormat(Converter *converter, const QString &filter)
@@ -1995,9 +2067,11 @@ MainWindow::UserSaveAction MainWindow::promptForSave(const QVector<ScintillaNext
                        : tr("There are %n files with unsaved changes. Save them?", "", count);
     msgBox.setText(text);
 
-    auto *saveBtn = msgBox.addButton(count > 1 ? tr("Save All") : tr("Save"), QMessageBox::AcceptRole);
-    auto *discardBtn = msgBox.addButton(count > 1 ? tr("Discard All") : tr("Discard"), QMessageBox::DestructiveRole);
+    auto *saveBtn = msgBox.addButton(count > 1 ? tr("&Yes to All") : tr("&Yes"), QMessageBox::AcceptRole);
+    auto *discardBtn = msgBox.addButton(count > 1 ? tr("&No to All") : tr("&No"), QMessageBox::DestructiveRole);
     msgBox.addButton(QMessageBox::Cancel);
+    saveBtn->setShortcut(QKeySequence(Qt::Key_Y));
+    discardBtn->setShortcut(QKeySequence(Qt::Key_N));
 
     msgBox.setDefaultButton(saveBtn);
     msgBox.exec();

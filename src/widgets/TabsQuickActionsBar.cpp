@@ -36,7 +36,7 @@ namespace
 TabsQuickActionsBar::TabsQuickActionsBar(const Buttons &visibileButtons, QWidget *parent)
     : QToolBar(parent)
 {
-    createNewTabAction = addAction(QIcon(IconPlusPath), "");
+    createNewTabAction = addAction(QIcon(IconPlusPath), "+");
     createNewTabAction->setToolTip(tr("Create a new file"));
 
     showTabsMenuAction = addAction(QIcon(IconListPath), "");
@@ -68,9 +68,7 @@ TabsQuickActionsBar::TabsQuickActionsBar(const Buttons &visibileButtons, QWidget
 
 void TabsQuickActionsBar::setVisibileButtons(const Buttons &buttons)
 {
-    if (visibileButtons == buttons)
-        return;
-
+    const bool changed = visibileButtons != buttons;
     visibileButtons = buttons;
 
     const std::map<QAction*, Button> mapping {
@@ -82,7 +80,8 @@ void TabsQuickActionsBar::setVisibileButtons(const Buttons &buttons)
     for (const auto &pair : mapping)
         pair.first->setVisible(buttons.testFlag(pair.second));
 
-    emit visibileButtonsChanged(buttons);
+    if (changed)
+        emit visibileButtonsChanged(buttons);
 }
 
 void TabsQuickActionsBar::setVisibileButton(Button button, bool on)

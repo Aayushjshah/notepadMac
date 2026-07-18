@@ -23,6 +23,7 @@
 #include <QMainWindow>
 #include <QLabel>
 #include <QActionGroup>
+#include <QSet>
 
 #include "DockedEditor.h"
 
@@ -89,6 +90,7 @@ public slots:
     bool saveCopyAs(const QString &fileName);
     bool saveAll();
     bool saveAllEditors(const QVector<ScintillaNext *> &editors);
+    bool saveAllEditorsForClose(const QVector<ScintillaNext *> &editors);
 
     void exportAsFormat(Converter *converter, const QString &filter);
     void copyAsFormat(Converter *converter, const QString &mimeType);
@@ -174,6 +176,7 @@ private:
     ScintillaNext *getInitialEditor();
     void openFileList(const QStringList &fileNames);
     bool checkEditorsBeforeClose(const QVector<ScintillaNext *> &editors);
+    QString fileNameForUnnamedEditor(ScintillaNext *editor, const QSet<QString> &reservedNames) const;
     bool checkFileForModification(ScintillaNext *editor);
     void showSaveErrorMessage(ScintillaNext *editor, QFileDevice::FileError error);
     void showEditorZoomLevelIndicator();
