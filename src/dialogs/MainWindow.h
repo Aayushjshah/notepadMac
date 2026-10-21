@@ -180,6 +180,10 @@ private:
     bool checkFileForModification(ScintillaNext *editor);
     void showSaveErrorMessage(ScintillaNext *editor, QFileDevice::FileError error);
     void showEditorZoomLevelIndicator();
+    void recordEditorHistory(ScintillaNext *editor);
+    void pruneEditorHistory(ScintillaNext *editor);
+    void navigateEditorHistoryBack();
+    void navigateEditorHistoryForward();
 
     enum class UserSaveAction { SaveAll, DiscardAll, Cancel };
     UserSaveAction promptForSave(const QVector<ScintillaNext *> &editors);
@@ -192,6 +196,10 @@ private:
     QActionGroup *languageActionGroup;
 
     TabsQuickActionsBar *tabsQuickActionsBar = Q_NULLPTR;
+    QVector<ScintillaNext *> editorBackHistory;
+    QVector<ScintillaNext *> editorForwardHistory;
+    ScintillaNext *lastHistoryEditor = Q_NULLPTR;
+    ScintillaNext *expectedHistoryNavigationTarget = Q_NULLPTR;
 
     //NppImporter *npp;
 

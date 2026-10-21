@@ -76,6 +76,7 @@
 
 #include "TabsQuickActionsBar.h"
 
+#include "OpenFilesSwitcher.h"
 #include "QuickFindWidget.h"
 
 #include "EditorPrintPreviewRenderer.h"
@@ -643,6 +644,29 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
             }
         });
     }
+
+    QAction *openFilesSwitcherAction = new QAction(this);
+    openFilesSwitcherAction->setShortcut(QKeySequence(Qt::META | Qt::SHIFT | Qt::Key_P));
+    addAction(openFilesSwitcherAction);
+    connect(openFilesSwitcherAction, &QAction::triggered, this, [this]() {
+        OpenFilesSwitcher *switcher = findChild<OpenFilesSwitcher *>(QString(), Qt::FindDirectChildrenOnly);
+
+        if (switcher == Q_NULLPTR) {
+            switcher = new OpenFilesSwitcher(this);
+        }
+
+        switcher->showSwitcher();
+    });
+
+    QAction *previousFileHistoryAction = new QAction(this);
+    previousFileHistoryAction->setShortcut(QKeySequence(Qt::META | Qt::ALT | Qt::Key_Left));
+    addAction(previousFileHistoryAction);
+    connect(previousFileHistoryAction, &QAction::triggered, this, &MainWindow::navigateEditorHistoryBack);
+
+    QAction *nextFileHistoryAction = new QAction(this);
+    nextFileHistoryAction->setShortcut(QKeySequence(Qt::META | Qt::ALT | Qt::Key_Right));
+    addAction(nextFileHistoryAction);
+    connect(nextFileHistoryAction, &QAction::triggered, this, &MainWindow::navigateEditorHistoryForward);
 
     ui->pushExitFullScreen->setParent(this); // This is important
     ui->pushExitFullScreen->setVisible(false);
@@ -1906,6 +1930,8 @@ void MainWindow::activateEditor(ScintillaNext *editor)
 {
     qInfo(Q_FUNC_INFO);
 
+    recordEditorHistory(editor);
+
     checkFileForModification(editor);
     updateGui(editor);
 
@@ -2054,6 +2080,92 @@ void MainWindow::showEditorZoomLevelIndicator()
     FadingIndicator::showText(currentEditor(), tr("Zoom: %1%").arg(zoomLevel * 10 + 100));
 }
 
+void MainWindow::recordEditorHistory(ScintillaNext *editor)
+{
+    if (editor == Q_NULLPTR) {
+        return;
+    }
+
+    if (editor == expectedHistoryNavigationTarget) {
+        expectedHistoryNavigationTarget = Q_NULLPTR;
+        lastHistoryEditor = editor;
+        return;
+    }
+
+    if (lastHistoryEditor != Q_NULLPTR && lastHistoryEditor != editor) {
+        editorBackHistory.removeAll(lastHistoryEditor);
+        editorBackHistory.append(lastHistoryEditor);
+        editorForwardHistory.clear();
+
+        constexpr int maxHistoryEntries = 100;
+        while (editorBackHistory.size() > maxHistoryEntries) {
+            editorBackHistory.removeFirst();
+        }
+    }
+
+    lastHistoryEditor = editor;
+}
+
+void MainWindow::pruneEditorHistory(ScintillaNext *editor)
+{
+    editorBackHistory.removeAll(editor);
+    editorForwardHistory.removeAll(editor);
+
+    if (lastHistoryEditor == editor) {
+        lastHistoryEditor = currentEditor() == editor ? Q_NULLPTR : currentEditor();
+    }
+
+    if (expectedHistoryNavigationTarget == editor) {
+        expectedHistoryNavigationTarget = Q_NULLPTR;
+    }
+}
+
+void MainWindow::navigateEditorHistoryBack()
+{
+    ScintillaNext *current = currentEditor();
+
+    while (!editorBackHistory.isEmpty()) {
+        ScintillaNext *target = editorBackHistory.takeLast();
+
+        if (target == Q_NULLPTR || target == current) {
+            continue;
+        }
+
+        if (current != Q_NULLPTR) {
+            editorForwardHistory.removeAll(current);
+            editorForwardHistory.append(current);
+        }
+
+        expectedHistoryNavigationTarget = target;
+        switchToEditor(target);
+        lastHistoryEditor = target;
+        return;
+    }
+}
+
+void MainWindow::navigateEditorHistoryForward()
+{
+    ScintillaNext *current = currentEditor();
+
+    while (!editorForwardHistory.isEmpty()) {
+        ScintillaNext *target = editorForwardHistory.takeLast();
+
+        if (target == Q_NULLPTR || target == current) {
+            continue;
+        }
+
+        if (current != Q_NULLPTR) {
+            editorBackHistory.removeAll(current);
+            editorBackHistory.append(current);
+        }
+
+        expectedHistoryNavigationTarget = target;
+        switchToEditor(target);
+        lastHistoryEditor = target;
+        return;
+    }
+}
+
 MainWindow::UserSaveAction MainWindow::promptForSave(const QVector<ScintillaNext *> &editors)
 {
     const int count = editors.count();
@@ -2167,6 +2279,7 @@ void MainWindow::addEditor(ScintillaNext *editor)
     connect(editor, &ScintillaNext::renamed, this, [= ,this]() { detectLanguage(editor); });
     connect(editor, &ScintillaNext::renamed, this, [=, this]() { updateFileStatusBasedUi(editor); });
     connect(editor, &ScintillaNext::updateUi, this, &MainWindow::updateDocumentBasedUi);
+    connect(editor, &ScintillaNext::destroyed, this, [=, this]() { pruneEditorHistory(editor); });
 
     // Watch for any zoom events (Ctrl+Scroll or pinch-to-zoom (Qt translates it as Ctrl+Scroll)) so that the event
     // can be handled before the ScintillaEditBase widget, so that it can be applied to all editors to keep zoom level equal.

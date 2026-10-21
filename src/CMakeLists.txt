@@ -174,6 +174,8 @@ qt_add_executable(NotepadNext
 	widgets/EditorInfoStatusBar.h
 	widgets/FadingIndicator.cpp
 	widgets/FadingIndicator.h
+	widgets/OpenFilesSwitcher.cpp
+	widgets/OpenFilesSwitcher.h
 	widgets/QuickFindWidget.cpp
 	widgets/QuickFindWidget.h
 	widgets/QuickFindWidget.ui
